@@ -12,6 +12,12 @@
 #define HOOK_PIN 0
 #define PLAYBACK_BUTTON_PIN 1
 
+class WrapperAudioControl : public AudioControlSGTL5000
+{
+public:
+  using AudioControlSGTL5000::write;
+};
+
 AudioSynthWaveform waveform1;                        // To create the "beep" SFX
 AudioInputI2S i2s2;                                  // I2S input from microphone on audio shield
 AudioPlaySdWavX playWav1;                            // Play 44.1kHz 16-bit PCM greeting WAV file
@@ -23,7 +29,7 @@ AudioConnection patchCord3(playWav1, 0, mixer, 1);   // wav file playback mixer
 AudioConnection patchCord4(mixer, 0, i2s1, 0);       // mixer output to speaker (L)
 AudioConnection patchCord6(mixer, 0, i2s1, 1);       // mixer output to speaker (R)
 AudioConnection patchCord5(i2s2, 0, queue1, 0);      // mic input to queue (L)
-AudioControlSGTL5000 sgtl5000_1;
+WrapperAudioControl sgtl5000_1;
 
 // Filename to save audio recording on SD card
 char filename[15];
@@ -77,13 +83,16 @@ void setup() {
 
   // Enable the audio shield, select input, and enable output
   sgtl5000_1.enable();
-  // Define which input on the audio shield to use (AUDIO_INPUT_LINEIN / AUDIO_INPUT_MIC)
   sgtl5000_1.inputSelect(AUDIO_INPUT_MIC);
-  //sgtl5000_1.adcHighPassFilterDisable(); //
-  sgtl5000_1.volume(0.95);
+  sgtl5000_1.volume(1.0);
 
-  mixer.gain(0, 1.0f);
-  mixer.gain(1, 1.0f);
+#define CHIP_MIC_CTRL			0x002A
+#define CHIP_ANA_ADC_CTRL		0x0020
+  unsigned int preamp_gain = 2;
+  unsigned int reduce = 0;
+  unsigned int input_gain = 0;
+  sgtl5000_1.write(CHIP_MIC_CTRL, 0x0370 | preamp_gain);
+	sgtl5000_1.write(CHIP_ANA_ADC_CTRL, (reduce << 5) | (input_gain << 4) | input_gain);
 
   // Play a beep to indicate system is online
   waveform1.begin(beep_volume, 440, WAVEFORM_SINE);
@@ -101,17 +110,6 @@ void setup() {
       delay(500);
     }
   } else Serial.println("SD card correctly initialized");
-
-  // Value in dB
-  sgtl5000_1.micGain(40);  // much lower gain is required for the AOM5024 electret capsule
-
-  // Synchronise the Time object used in the program code with the RTC time provider.
-  // See https://github.com/PaulStoffregen/Time
-  setSyncProvider(getTeensy3Time);
-
-  // Define a callback that will assign the correct datetime for any file system operations
-  // (i.e. saving a new audio recording onto the SD card)
-  FsDateTime::setCallback(dateTime);
 
   mode = Mode::Ready;
   print_mode();
@@ -288,11 +286,6 @@ void playLastRecording() {
   mode = Mode::Ready;
   print_mode();
   end_Beep();
-}
-
-// Retrieve the current time from Teensy built-in RTC
-time_t getTeensy3Time() {
-  return Teensy3Clock.get();
 }
 
 // Callback to assign timestamps for file system operations
